@@ -1,0 +1,1146 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(Rmisc)
+library(lubridate)
+library(ggplot2)
+library(car)
+library(MASS)
+library(mgcv)
+library(MuMIn)
+library(emmeans)
+library(wesanderson)
+library(effects)
+library(lme4)
+library(nlme)
+library(sjPlot)
+```
+
+##Sump pCO2
+
+```{r}
+d<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Sump pCO2 all.csv", strip.white=T)
+d$Date<-as.Date(d$Date)
+d$Date_Time<- as.POSIXct(paste(d$Date, d$Time), "%Y-%m-%d hh:mm:ss")
+d
+```
+
+```{r}
+library(plotrix)
+pco2<-d%>%
+  group_by(Name,Date)%>%
+  summarize_at(vars(CO2.Measured), funs(mean,std.error,sd,min,max), na.rm=T)
+pco2
+```
+```{r}
+library(plotrix)
+pco2mean<-d%>%
+  group_by(Name)%>%
+  summarize_at(vars(CO2.Measured), funs(mean,std.error,sd,min,max), na.rm=T)
+pco2mean
+```
+
+```{r}
+pco2submean<-d%>%
+  dplyr::filter(Date > "2021-02-17")%>%
+  group_by(Name)%>%
+  summarize_at(vars(CO2.Measured), funs(mean,std.error,sd,min,max), na.rm=T)
+pco2submean
+```
+
+```{r}
+CO2.lm <- lm(CO2.Measured~Name, data=d,na.action=na.exclude)
+Anova(CO2.lm)
+tukey3<- emmeans(CO2.lm, list(pairwise ~ Name), adjust = "tukey")
+tukey3
+```
+
+```{r}
+d$Name <- factor(d$Name, levels=c("Variable","Stable"))
+conditions<-ggplot(d %>%
+         arrange(Name), aes(y=CO2.Measured, x=Date, color=Name))+
+  geom_point(size=1.25)+
+  #geom_line(size=1)+
+  scale_fill_manual("Name", values=c("Stable"='black', "Variable"= "grey"))+
+  scale_color_manual("Name", values=c("Variable"= "grey","Stable"='black'))+
+  scale_y_continuous(expression(CO[2]~(ppm)),limits=c(300,1650), breaks=c(300,450,600,750,900,1050,1200,1350,1500,1650))+
+  scale_x_date(date_breaks = "7 days", date_labels = "%d %b",expand=c(0.015,0.015))+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        legend.position=c(0.85,0.90),
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+conditions
+```
+
+```{r}
+library(cowplot)
+CO2both2<-plot_grid(conditions, CO2_all,ncol=2,align="h", axis = "bt")
+CO2both2
+```
+
+##Seneye pH
+
+```{r}
+pH<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Seneye pH.csv", strip.white=T)
+pH$Date<-as.Date(pH$Date)
+pH$Date_Time<- as.POSIXct(paste(pH$Date, pH$Time), "%Y-%m-%d hh:mm:ss")
+pH
+```
+```{r}
+library(dplyr)
+pH_Q3<-pH%>%
+  group_by(Date,Treatment)%>%
+  summarize_at(vars(pH), funs(Q3 = quantile), probs = 0.975,na.rm=T)
+pH_Q3
+pH_Q1<-pH%>%
+  group_by(Date, Treatment)%>%
+  summarize_at(vars(pH), funs(Q1 = quantile), probs = 0.025,na.rm=T)
+pH_Q1
+```
+
+```{r}
+pH_2<-inner_join(pH,pH_Q1)
+pH_2<-inner_join(pH_2,pH_Q3)
+pH_2
+
+pH_edit<-pH_2%>%
+  mutate(pH_clean=ifelse(pH < Q1 | pH >Q3, NA,pH))
+pH_edit
+pH_edit$hour <- as.POSIXlt(pH_edit$Date_Time)$hour
+```
+
+
+```{r}
+library(plotrix)
+pHmean<-pH_edit%>%
+  group_by(Treatment)%>%
+  summarize_at(vars(pH_clean), funs(mean,std.error,sd,min,max), na.rm=T)
+pHmean
+```
+```{r}
+pH.lme <- lm(pH_clean~Treatment, data=pH_edit,na.action=na.exclude)
+Anova(pH.lme)
+tukey<- emmeans(pH.lme, list(pairwise ~ Treatment), adjust = "tukey")
+tukey
+```
+
+```{r}
+pH_edit$Treatment <- factor(pH_edit$Treatment, levels=c("Variable","Stable"))
+pHfig<-ggplot(data=pH_edit, aes(y=pH_clean, x=Date_Time, color=Treatment))+
+  geom_point(size=1)+
+  geom_line(size=1)+
+  scale_fill_manual("Treatment", values=c("Stable"='paleturquoise3', "Variable"= "navyblue"))+
+  scale_color_manual("Treatment", values=c("Stable"='paleturquoise3', "Variable"= "navyblue"))+
+  scale_y_continuous(expression(pH), limits=c(7.8,8.6))+
+  #scale_x_date(date_breaks = "1 day", date_labels = "%d %b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        #legend.position="none",
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+pHfig
+```
+
+```{r}
+daily<-pH_edit%>%
+  group_by(hour, Treatment)%>%
+  summarize_at(vars(pH_clean), funs(mean,std.error), na.rm=T)
+daily
+```
+
+```{r}
+daily$Treatment <- factor(daily$Treatment, levels=c("Variable","Stable"))
+pH_day<-ggplot(data=daily, aes(y=mean, x=hour, color=Treatment, fill=Treatment))+
+  #geom_point(size=1)+
+  geom_smooth(size=1, alpha=0.4)+
+  #geom_ribbon(PAR_clean_std.error)+
+  scale_y_continuous(expression(pH))+
+  scale_x_continuous(expression(Time~of~Day~("24hr")),breaks=c(6,12,18),labels= c("06:00","12:00","18:00"))+
+  scale_fill_manual("Treatment", values=c("Stable"='paleturquoise3', "Variable"= "navyblue"))+
+  scale_color_manual("Treatment", values=c("Stable"='paleturquoise3', "Variable"= "navyblue"))+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        #legend.position = c(0.15,0.3),
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+pH_day
+```
+
+```{r}
+library(cowplot)
+pHboth<-plot_grid(pHfig,pH_day,ncol=2,align="h", axis = "bt")
+pHboth
+```
+
+##pH
+```{r}
+pH_log<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/pH log_Kristen.csv", strip.white=T)
+pH_log$Date<-as.Date(pH_log$Date)
+pH_log$Date_Time<- as.POSIXct(paste(pH_log$Date, pH_log$Time), "%Y-%m-%d hh:mm:ss")
+pH_log
+```
+```{r}
+library(plotrix)
+pH2<-pH_log%>%
+  group_by(Treatment)%>%
+  summarize_at(vars(pH), funs(mean,std.error,sd,min,max), na.rm=T)
+pH2
+```
+
+```{r}
+pH_log.lme <- lme(pH~Treatment,random= ~1|Tank, data=pH_log,na.action=na.exclude)
+Anova(pH_log.lme)
+tukey<- emmeans(pH_log.lme, list(pairwise ~ Treatment), adjust = "tukey")
+tukey
+```
+```{r}
+pH_logfig<-ggplot(data=pH_log, aes(y=pH, x=Date_Time, color=Treatment))+
+  #geom_point(size=2)+
+  geom_line(size=1)+
+  scale_fill_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  scale_color_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  #scale_y_continuous(expression(CO[2]~(ppm)), breaks=c(300,450,600,750,900,1050,1200,1350,1500))+
+  #scale_x_date(date_breaks = "1 day", date_labels = "%d %b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        #legend.position="none",
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+pH_logfig
+```
+##PAR
+
+```{r}
+PARF<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-01_8176_001_002_RF.csv", strip.white=T)
+PARF<-rename(PARF, replace = c("ï..Date" = "Date"))
+PARF$Date<-as.Date(PARF$Date)
+PARF$Date_Time<- as.POSIXct(paste(PARF$Date, PARF$Time), "%Y-%m-%d hh:mm:ss")
+PARF$Treatment<-as.factor(PARF$Treatment)
+PARF
+```
+
+```{r}
+PARF2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-08_4319_001_002_RF_CORRECTED.csv", strip.white=T)
+PARF2$Date<-as.Date(PARF2$Date)
+PARF2$Date_Time<- as.POSIXct(paste(PARF2$Date, PARF2$Time), "%Y-%m-%d hh:mm:ss")
+PARF2$Treatment<-as.factor(PARF2$Treatment)
+PARF2
+```
+```{r}
+PARF3<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-08_8176_001_003_RF_CORRECTED.csv", strip.white=T)
+PARF3<-rename(PARF3, replace = c("ï..Date" = "Date"))
+PARF3$Date<-as.Date(PARF3$Date)
+PARF3$Date_Time<- as.POSIXct(paste(PARF3$Date, PARF3$Time), "%Y-%m-%d hh:mm:ss")
+PARF3$Treatment<-as.factor(PARF3$Treatment)
+PARF3
+```
+
+```{r}
+PARF4<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-15_8176_001_004_RF.csv", strip.white=T)
+PARF4<-rename(PARF4, replace = c("ï..Date" = "Date"))
+PARF4$Date<-as.Date(PARF4$Date)
+PARF4$Date_Time<- as.POSIXct(paste(PARF4$Date, PARF4$Time), "%Y-%m-%d hh:mm:ss")
+PARF4$Treatment<-as.factor(PARF4$Treatment)
+PARF4
+```
+
+```{r}
+PARF5<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-15_4319_001_003_RF.csv", strip.white=T)
+PARF5<-rename(PARF5, replace = c("ï..Date" = "Date"))
+PARF5$Date<-as.Date(PARF5$Date)
+PARF5$Date_Time<- as.POSIXct(paste(PARF5$Date, PARF5$Time), "%Y-%m-%d hh:mm:ss")
+PARF5$Treatment<-as.factor(PARF5$Treatment)
+PARF5
+```
+```{r}
+PARF6<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-22_8176_001_005_RF_cal.csv", strip.white=T)
+PARF6$Date<-as.Date(PARF6$Date)
+PARF6$Date_Time<- as.POSIXct(paste(PARF6$Date, PARF6$Time), "%Y-%m-%d hh:mm:ss")
+PARF6$Treatment<-as.factor(PARF6$Treatment)
+PARF6
+```
+
+```{r}
+PARF7<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-22_4319_001_004_RF2_cal.csv", strip.white=T)
+PARF7$Date<-as.Date(PARF7$Date)
+PARF7$Date_Time<- as.POSIXct(paste(PARF7$Date, PARF7$Time), "%Y-%m-%d hh:mm:ss")
+PARF7$Treatment<-as.factor(PARF7$Treatment)
+PARF7
+```
+```{r}
+PARF8<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-08_4319_001_005_RF.csv", strip.white=T)
+PARF8$Date<-as.Date(PARF8$Date)
+PARF8$Date_Time<- as.POSIXct(paste(PARF8$Date, PARF8$Time), "%Y-%m-%d hh:mm:ss")
+PARF8$Treatment<-as.factor(PARF8$Treatment)
+PARF8
+```
+```{r}
+PARF9<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-08_8176_001_006_RF.csv", strip.white=T)
+PARF9$Date<-as.Date(PARF9$Date)
+PARF9$Date_Time<- as.POSIXct(paste(PARF9$Date, PARF9$Time), "%Y-%m-%d hh:mm:ss")
+PARF9$Treatment<-as.factor(PARF9$Treatment)
+PARF9
+```
+
+```{r}
+PARF10<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-19_RF_4319_001_006_cal.csv", strip.white=T)
+PARF10$Date<-as.Date(PARF10$Date)
+PARF10$Date_Time<- as.POSIXct(paste(PARF10$Date, PARF10$Time), "%Y-%m-%d hh:mm:ss")
+PARF10$Treatment<-as.factor(PARF10$Treatment)
+PARF10
+```
+```{r}
+PARF11<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-19_RF_8176_001_cal.csv", strip.white=T)
+PARF11$Date<-as.Date(PARF11$Date)
+PARF11$Date_Time<- as.POSIXct(paste(PARF11$Date, PARF11$Time), "%Y-%m-%d hh:mm:ss")
+PARF11$Treatment<-as.factor(PARF11$Treatment)
+PARF11
+```
+
+```{r}
+PARS<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-01_1882_RS.csv", strip.white=T)
+PARS<-rename(PARS, replace = c("ï..Date" = "Date"))
+PARS$Date<-as.Date(PARS$Date)
+PARS$Date_Time<- as.POSIXct(paste(PARS$Date, PARS$Time), "%Y-%m-%d hh:mm:ss")
+PARS$Treatment<-as.factor(PARS$Treatment)
+PARS
+```
+
+```{r}
+PARS2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-08_1882_001_003_RS_CORRECTED.csv", strip.white=T)
+PARS2<-rename(PARS2, replace = c("ï..Date" = "Date"))
+PARS2$Date<-as.Date(PARS2$Date)
+PARS2$Date_Time<- as.POSIXct(paste(PARS2$Date, PARS2$Time), "%Y-%m-%d hh:mm:ss")
+PARS2$Treatment<-as.factor(PARS2$Treatment)
+PARS2
+```
+```{r}
+PARS3<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-08_5546_001_002_RS_CORRECTED.csv", strip.white=T)
+PARS3<-rename(PARS3, replace = c("ï..Date" = "Date"))
+PARS3$Date<-as.Date(PARS3$Date)
+PARS3$Date_Time<- as.POSIXct(paste(PARS3$Date, PARS3$Time), "%Y-%m-%d hh:mm:ss")
+PARS3$Treatment<-as.factor(PARS3$Treatment)
+PARS3
+```
+```{r}
+PARS4<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-15_5546_001_003_RS.csv", strip.white=T)
+PARS4<-rename(PARS4, replace = c("ï..Date" = "Date"))
+PARS4$Date<-as.Date(PARS4$Date)
+PARS4$Date_Time<- as.POSIXct(paste(PARS4$Date, PARS4$Time), "%Y-%m-%d hh:mm:ss")
+PARS4$Treatment<-as.factor(PARS4$Treatment)
+PARS4
+```
+
+```{r}
+PARS5<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-15_1882_001_004_RS.csv", strip.white=T)
+PARS5<-rename(PARS5, replace = c("ï..Date" = "Date"))
+PARS5$Date<-as.Date(PARS5$Date)
+PARS5$Date_Time<- as.POSIXct(paste(PARS5$Date, PARS5$Time), "%Y-%m-%d hh:mm:ss")
+PARS5$Treatment<-as.factor(PARS5$Treatment)
+PARS5
+```
+```{r}
+PARS6<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-22_1882_001_005_RS_cal.csv", strip.white=T)
+PARS6$Date<-as.Date(PARS6$Date)
+PARS6$Date_Time<- as.POSIXct(paste(PARS6$Date, PARS6$Time), "%Y-%m-%d hh:mm:ss")
+PARS6$Treatment<-as.factor(PARS6$Treatment)
+PARS6
+```
+
+```{r}
+PARS7<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-22_5546_001_004_RS2_cal.csv", strip.white=T)
+PARS7$Date<-as.Date(PARS7$Date)
+PARS7$Date_Time<- as.POSIXct(paste(PARS7$Date, PARS7$Time), "%Y-%m-%d hh:mm:ss")
+PARS7$Treatment<-as.factor(PARS7$Treatment)
+PARS7
+```
+
+```{r}
+PARS8<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-08_1882_001_006_RS.csv", strip.white=T)
+PARS8$Date<-as.Date(PARS8$Date)
+PARS8$Date_Time<- as.POSIXct(paste(PARS8$Date, PARS8$Time), "%Y-%m-%d hh:mm:ss")
+PARS8$Treatment<-as.factor(PARS8$Treatment)
+PARS8
+```
+```{r}
+PARS9<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-08_5546_001_005_RS.csv", strip.white=T)
+PARS9$Date<-as.Date(PARS9$Date)
+PARS9$Date_Time<- as.POSIXct(paste(PARS9$Date, PARS9$Time), "%Y-%m-%d hh:mm:ss")
+PARS9$Treatment<-as.factor(PARS9$Treatment)
+PARS9
+```
+```{r}
+PARS10<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-19_RS_1882_001_007.csv", strip.white=T)
+PARS10$Date<-as.Date(PARS10$Date)
+PARS10$Date_Time<- as.POSIXct(paste(PARS10$Date, PARS10$Time), "%Y-%m-%d hh:mm:ss")
+PARS10$Treatment<-as.factor(PARS10$Treatment)
+PARS10
+```
+
+```{r}
+PARS11<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-19_RS_5546_001_006_cal.csv", strip.white=T)
+PARS11$Date<-as.Date(PARS11$Date)
+PARS11$Date_Time<- as.POSIXct(paste(PARS11$Date, PARS11$Time), "%Y-%m-%d hh:mm:ss")
+PARS11$Treatment<-as.factor(PARS11$Treatment)
+PARS11
+```
+
+```{r}
+allPAR<- merge(PARF,PARF2, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF3, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF4, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF5, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF6, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF7, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF8, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF9, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF10, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARF11, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all = T)
+allPAR<-merge(allPAR,PARS2, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all = T)
+allPAR<-merge(allPAR,PARS3, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS4, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS5, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS6, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS7, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS8, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS9, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS10, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR<-merge(allPAR,PARS11, by=c("Date","Time","Treatment", "PAR", "Date_Time"), all=T)
+allPAR
+```
+```{r}
+PARmean<-allPAR%>%
+  group_by(Treatment)%>%
+  summarize_at(vars(PAR), funs(mean,std.error,sd,min,max), na.rm=T)
+PARmean
+```
+```{r}
+PAR.lm <- lm(PAR~Treatment, data=allPAR,na.action=na.exclude)
+Anova(PAR.lm)
+tukey3<- emmeans(PAR.lm, list(pairwise ~ Treatment), adjust = "tukey")
+tukey3
+```
+```{r}
+library(Rmisc)
+PARsum<-summarySE(data=allPAR, measurevar = "PAR", groupvars = c("Treatment", "Date_Time"), na.rm = T)
+PARsum
+```
+```{r}
+library(Rmisc)
+PARsum2<-summarySE(data=allPAR, measurevar = "PAR", groupvars = c("Treatment", "Date"), na.rm = T)
+PARsum2
+```
+
+```{r}
+PARfig<-ggplot(data=PARsum, aes(y=PAR, x=Date_Time, color=Treatment))+
+  #geom_point(size=2)+
+  geom_line(size=1)+
+  scale_fill_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  scale_color_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  scale_y_continuous(expression(PAR~(mu~mol~qanta~m^{-2}~s^{-1})), limits=c(0,1000))+
+  #scale_x_date(date_breaks = "1 day", date_labels = "%d %b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        #legend.position="none",
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+PARfig
+```
+
+```{r}
+PARfig2<-ggplot(data=PARsum2, aes(y=PAR, x=Date, color=Treatment))+
+  geom_point(size=2)+
+  geom_line(size=1)+
+  scale_fill_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  scale_color_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  scale_y_continuous(expression(PAR~(mu~mol~qanta~m^{-2}~s^{-1})), limits=c(0,1000))+
+  scale_x_date(date_breaks = "1 week", date_labels = "%d %b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        #legend.position="none",
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+PARfig2
+```
+
+##Temperature
+
+```{r}
+tempf<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-08_Tank_exp.csv", strip.white=T)
+tempf$Date<-as.Date(tempf$Date)
+tempf$Date_Time<- as.POSIXct(paste(tempf$Date, tempf$Time), "%Y-%m-%d hh:mm:ss")
+tempf$Treatment<-as.factor(tempf$Treatment)
+tempf
+```
+```{r}
+tempf2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-08_Tank_Flat_-_10751412.csv", strip.white=T)
+tempf2$Date<-as.Date(tempf2$Date)
+tempf2$Date_Time<- as.POSIXct(paste(tempf2$Date, tempf2$Time), "%Y-%m-%d hh:mm:ss")
+tempf2$Treatment<-as.factor(tempf2$Treatment)
+tempf2
+```
+```{r}
+tempf3<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-15_Tank_6_Flat_-_10751412.csv", strip.white=T)
+tempf3$Date<-as.Date(tempf3$Date)
+tempf3$Date_Time<- as.POSIXct(paste(tempf3$Date, tempf3$Time), "%Y-%m-%d hh:mm:ss")
+tempf3$Treatment<-as.factor(tempf3$Treatment)
+tempf3
+```
+
+```{r}
+tempf4<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-15_Tank_exp_RF2.csv", strip.white=T)
+tempf4$Date<-as.Date(tempf4$Date)
+tempf4$Date_Time<- as.POSIXct(paste(tempf4$Date, tempf4$Time), "%Y-%m-%d hh:mm:ss")
+tempf4$Treatment<-as.factor(tempf4$Treatment)
+tempf4
+```
+```{r}
+tempf5<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-22_Tank_6_Flat_-_10751412.csv", strip.white=T)
+tempf5$Date<-as.Date(tempf5$Date)
+tempf5$Date_Time<- as.POSIXct(paste(tempf5$Date, tempf5$Time), "%Y-%m-%d hh:mm:ss")
+tempf5$Treatment<-as.factor(tempf5$Treatment)
+tempf5
+```
+
+```{r}
+tempf6<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-22_Tank_exp_RF2.csv", strip.white=T)
+tempf6$Date<-as.Date(tempf6$Date)
+tempf6$Date_Time<- as.POSIXct(paste(tempf6$Date, tempf6$Time), "%Y-%m-%d hh:mm:ss")
+tempf6$Treatment<-as.factor(tempf6$Treatment)
+tempf6
+```
+```{r}
+tempf7<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021.03.08_Tank_6_Flat_-_10751412.csv", strip.white=T)
+tempf7$Date<-as.Date(tempf7$Date)
+tempf7$Date_Time<- as.POSIXct(paste(tempf7$Date, tempf7$Time), "%Y-%m-%d hh:mm:ss")
+tempf7$Treatment<-as.factor(tempf7$Treatment)
+tempf7
+```
+```{r}
+tempf8<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-08_Tank_exp_RF.csv", strip.white=T)
+tempf8$Date<-as.Date(tempf8$Date)
+tempf8$Date_Time<- as.POSIXct(paste(tempf8$Date, tempf8$Time), "%Y-%m-%d hh:mm:ss")
+tempf8$Treatment<-as.factor(tempf8$Treatment)
+tempf8
+```
+```{r}
+tempf9<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-19_Tank_6_Flat_-_10751412_0.csv", strip.white=T)
+tempf9$Date<-as.Date(tempf9$Date)
+tempf9$Date_Time<- as.POSIXct(paste(tempf9$Date, tempf9$Time), "%Y-%m-%d hh:mm:ss")
+tempf9$Treatment<-as.factor(tempf9$Treatment)
+tempf9
+```
+```{r}
+tempf10<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-19_RF_Tank_exp.csv", strip.white=T)
+tempf10$Date<-as.Date(tempf10$Date)
+tempf10$Date_Time<- as.POSIXct(paste(tempf10$Date, tempf10$Time), "%Y-%m-%d hh:mm:ss")
+tempf10$Treatment<-as.factor(tempf10$Treatment)
+tempf10
+```
+
+```{r}
+temps<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-08_Tank_exp_slope.csv", strip.white=T)
+temps$Date<-as.Date(temps$Date)
+temps$Date_Time<- as.POSIXct(paste(temps$Date, temps$Time), "%Y-%m-%d hh:mm:ss")
+temps$Treatment<-as.factor(temps$Treatment)
+temps
+```
+
+```{r}
+temps1<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-08_tank_exp_slope2.csv", strip.white=T)
+temps1$Date<-as.Date(temps1$Date)
+temps1$Date_Time<- as.POSIXct(paste(temps1$Date, temps1$Time), "%Y-%m-%d hh:mm:ss")
+temps1$Treatment<-as.factor(temps1$Treatment)
+temps1
+```
+
+```{r}
+temps2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-15_Tank_exp_slope.csv", strip.white=T)
+temps2$Date<-as.Date(temps2$Date)
+temps2$Date_Time<- as.POSIXct(paste(temps2$Date, temps2$Time), "%Y-%m-%d hh:mm:ss")
+temps2$Treatment<-as.factor(temps2$Treatment)
+temps2
+```
+
+```{r}
+temps3<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-15_Tank_exp_RS2.csv", strip.white=T)
+temps3$Date<-as.Date(temps3$Date)
+temps3$Date_Time<- as.POSIXct(paste(temps3$Date, temps3$Time), "%Y-%m-%d hh:mm:ss")
+temps3$Treatment<-as.factor(temps3$Treatment)
+temps3
+```
+
+```{r}
+temps4<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-02-22_Tank_exp_RS2.csv", strip.white=T)
+temps4$Date<-as.Date(temps4$Date)
+temps4$Date_Time<- as.POSIXct(paste(temps4$Date, temps4$Time), "%Y-%m-%d hh:mm:ss")
+temps4$Treatment<-as.factor(temps4$Treatment)
+temps4
+```
+
+```{r}
+temps5<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-08_Tank_exp_RS.csv", strip.white=T)
+temps5$Date<-as.Date(temps5$Date)
+temps5$Date_Time<- as.POSIXct(paste(temps5$Date, temps5$Time), "%Y-%m-%d hh:mm:ss")
+temps5$Treatment<-as.factor(temps5$Treatment)
+temps5
+```
+```{r}
+temps6<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-08_Tank_exp_RS2.csv", strip.white=T)
+temps6$Date<-as.Date(temps6$Date)
+temps6$Date_Time<- as.POSIXct(paste(temps6$Date, temps6$Time), "%Y-%m-%d hh:mm:ss")
+temps6$Treatment<-as.factor(temps6$Treatment)
+temps6
+```
+```{r}
+temps7<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-19_Tank_exp_RS.csv", strip.white=T)
+temps7$Date<-as.Date(temps7$Date)
+temps7$Date_Time<- as.POSIXct(paste(temps7$Date, temps7$Time), "%Y-%m-%d hh:mm:ss")
+temps7$Treatment<-as.factor(temps7$Treatment)
+temps7
+```
+```{r}
+temps8<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-19_RS_Tank_exp.csv", strip.white=T)
+temps8$Date<-as.Date(temps8$Date)
+temps8$Date_Time<- as.POSIXct(paste(temps8$Date, temps8$Time), "%Y-%m-%d hh:mm:ss")
+temps8$Treatment<-as.factor(temps8$Treatment)
+temps8
+```
+
+```{r}
+alltemp<- merge(tempf,tempf2, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,tempf3, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,tempf4, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,tempf5, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,tempf6, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,tempf7, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,tempf8, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,tempf9, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,tempf10, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,temps, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all = T)
+alltemp<-merge(alltemp,temps1, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all = T)
+alltemp<-merge(alltemp,temps2, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,temps3, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,temps4, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,temps5, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,temps6, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,temps7, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp<-merge(alltemp,temps8, by=c("Date","Time","Treatment", "Temperature", "Date_Time"), all=T)
+alltemp
+```
+```{r}
+write.csv(alltemp, "Temperature compiled.csv")
+```
+```{r}
+alltemp$Treatment <- factor(alltemp$Treatment, levels=c("Flat","Slope"))
+tempfigdot<-ggplot(alltemp, aes(y=Temperature, x=Date, color=Treatment, fill=Treatment))+
+  geom_point(aes(y=Temperature, x=Date), size=1,  alpha=0.8)+
+  geom_line(data=tempsum2, aes(y=Temperature, x=Date),size=1.25,alpha=0.8)+
+  geom_ribbon(data=tempsum2,aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4)+
+  geom_hline(yintercept = 27.3, linetype="solid", color = 'black', size=1, show.legend = TRUE)+
+  geom_hline(yintercept = 28.3, linetype="dashed", color = 'black', size=1, show.legend = TRUE)+
+  scale_y_continuous(expression(Temperature~(degree ~ C)), limits=c(25,30), breaks=c(25,27.5,30))+
+  scale_color_manual("Treatment", values=c("Slope"='black', "Flat"= "grey"))+
+  #scale_x_date(limits=as.Date(c("2019-09-01","2020-08-01")),date_breaks= "2 month",date_labels = "%b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(hjust=0.5, size=12),
+        plot.title = element_text(margin = margin(t = 10, b = -20), hjust=0.7),
+        panel.background= element_rect(fill=NA, color='black'),
+        axis.text.y = element_text(vjust=0.5, size=12), 
+        axis.title.x = element_text(vjust=0.5, size=12),
+        axis.title.y = element_text(vjust=0.5, size=12))
+        #legend.position = 'none')
+tempfigdot
+```
+
+```{r}
+library(plotrix)
+tempsum<-alltemp%>%
+  group_by(Treatment)%>%
+  summarize_at(vars(Temperature), funs(mean,std.error,sd,min,max), na.rm=T)
+tempsum
+```
+```{r}
+temp.lm <- lm(Temperature~Treatment, data=alltemp,na.action=na.exclude)
+Anova(temp.lm)
+tukey3<- emmeans(temp.lm, list(pairwise ~ Treatment), adjust = "tukey")
+tukey3
+```
+```{r}
+library(Rmisc)
+tempsum2<-summarySE(data=alltemp, measurevar = "Temperature", groupvars = c("Treatment", "Date"), na.rm = T)
+tempsum2
+```
+
+```{r}
+tempfig<-ggplot(data=tempsum2, aes(y=Temperature, x=Date, color=Treatment, fill=Treatment))+
+  #geom_point(size=2)+
+  geom_line(size=1)+
+  scale_fill_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  scale_color_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  geom_ribbon(aes(ymin=Temperature-se, ymax=Temperature+se), alpha=0.4)+
+  scale_y_continuous(expression(Temperature~(degree~C)))+
+  #scale_x_date(date_breaks = "1 day", date_labels = "%d %b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        #legend.position="none",
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+tempfig
+```
+
+```{r}
+tempfigsmooth<-ggplot(data=tempsum2, aes(y=Temperature, x=Date, color=Treatment, fill=Treatment))+
+  geom_smooth()+
+  scale_fill_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  scale_color_manual("Treatment", values=c("Slope"='paleturquoise3', "Flat"= "navyblue"))+
+  scale_y_continuous(expression(Temperature~(degree~C)))+
+  #scale_x_date(date_breaks = "1 day", date_labels = "%d %b %Y")+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        #legend.position="none",
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+tempfigsmooth
+```
+
+```{r}
+library(cowplot)
+conditionsall<-plot_grid(conditions,pHfig,tempfig,PARfig,ncol=2,nrow=2, align="h", axis = "bt")
+conditionsall
+```
+#Seawater carbonate chemistry
+```{r}
+library(seacarb)
+cc<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Seacarb_all.csv", strip.white=T)
+cc$Date<-as.Date(cc$Date)
+cc$Date_Time<- as.POSIXct(paste(cc$Date, cc$Time), "%Y-%m-%d hh:mm:ss")
+cc$Treatment<-as.factor(cc$Treatment)
+cc
+cc_seacarb<-carb(flag=8, var1=cc$pH, var2=cc$Alk_seacard, S=cc$Salinity, T=cc$Temperature)
+cc_seacarb
+```
+```{r}
+write.csv(cc_seacarb, "seacarb_R.csv")
+```
+
+```{r}
+cc2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/seacarb_R with labels all.csv", strip.white=T)
+cc2$Date<-as.Date(cc2$Date)
+cc2$Date_Time<- as.POSIXct(paste(cc2$Date, cc2$Time), "%Y-%m-%d hh:mm:ss")
+cc2$Treatment<-as.factor(cc2$Treatment)
+cc2$Time.of.day<-as.factor(cc2$Time.of.day)
+cc2$Peak<-as.factor(cc2$Peak)
+cc2
+```
+
+```{r}
+ccsum<-cc2%>%
+  group_by(Treatment, Peak, Date, Time)%>%
+  summarize_at(vars(pH, pCO2insitu, HCO3, CO3, DIC, ALK, OmegaAragonite, OmegaCalcite), funs(mean,std.error,sd,min,max), na.rm=T)
+ccsum
+```
+
+```{r}
+ccsum<-cc2%>%
+  group_by(Treatment)%>%
+  summarize_at(vars(pH, pCO2insitu, HCO3, CO3, DIC, ALK, OmegaAragonite, OmegaCalcite), funs(mean,std.error,sd,min,max), na.rm=T)
+ccsum
+```
+
+```{r}
+colnames(cc2)
+```
+
+```{r}
+write.csv(ccsum, "Carbonate Chemistry entire experiment.csv")
+```
+
+```{r}
+pCO2insitu.lm <- lm(pCO2insitu~Treatment*Peak, data=cc2,na.action=na.exclude)
+Anova(pCO2insitu.lm)
+tukey3<- emmeans(pCO2insitu.lm, list(pairwise ~ Treatment*Peak), adjust = "tukey")
+tukey3
+```
+
+```{r}
+cc.long<-pivot_longer(cc2, cols=13:26, names_to = "Parameter", values_to = "Value")
+cc.long
+```
+```{r}
+ccsum<-cc.long%>%
+  group_by(Treatment, Peak, Date,Parameter, Date_Time)%>%
+  summarize_at(vars(Value), funs(mean,std.error,sd,min,max), na.rm=T)
+ccsum
+```
+
+```{r}
+write.csv(ccsum, "Carbonate Chemistry test.csv")
+```
+
+```{r}
+pHonly<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/pH and pCO2 seacarb.csv", strip.white=T)
+pHonly$Date<-as.Date(pHonly$Date)
+#pHonly$Date_Time<- as.POSIXct(paste(pHonly$Date, pHonly$Time), "%Y-%m-%d hh:mm:ss")
+pHonly$Treatment<-as.factor(pHonly$Treatment)
+pHonly$Peak<-as.factor(pHonly$Peak)
+pHonly
+```
+```{r}
+pHsum <- summarySE(pHonly, measurevar="mean", groupvars=c("Treatment", "Date_Time", "Parameter"), na.rm=TRUE)
+pHsum
+```
+
+
+```{r}
+library(ggplot2)
+#meso2conditions$Treatment <- factor(meso2conditions$Treatment, levels=c("PD","RCP4.5","RCP8.5"))
+#meso2conditions$Parameter <- factor(meso2conditions$Parameter, levels=c("Light","Temperature","pCO2","pH","Ar"))
+ccconditionsfig<-ggplot(pHsum, aes(y=mean, x=Date_Time,color=Treatment,fill=Treatment))+
+  #geom_errorbar(aes(ymin=mean-std.error, ymax=mean+std.error, color=Treatment), alpha=0.8, position=position_dodge(.9), width=0.4)+
+  geom_line(aes(color=Treatment),alpha=0.6, group=1)+
+  geom_point(aes(color=Treatment))+
+  facet_grid(Parameter~., scales = "free")+
+  scale_fill_manual("Treatment", values=c("Stable"='paleturquoise3', "Variable"= "navyblue"))+
+  scale_color_manual("Treatment", values=c("Stable"='paleturquoise3', "Variable"= "navyblue"))+
+  #scale_shape_manual("Peak", values=c("No"=8, "Yes"= 19))+
+  #scale_x_date(date_breaks = "1 weeks", date_labels = "%d %b")+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5, size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        #legend.position = c(0.15,0.3),
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(vjust=0.5, size=12))#making the axis title larger 
+ccconditionsfig
+```
+###Nutrients
+```{r}
+nut<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Nutrient results with sample IDs.csv", strip.white=T)
+nut$Date<-as.Date(nut$Date)
+#pHonly$Date_Time<- as.POSIXct(paste(pHonly$Date, pHonly$Time), "%Y-%m-%d hh:mm:ss")
+nut$Habitat<-as.factor(nut$Habitat)
+nut$Tide<-as.factor(nut$Tide)
+nut
+```
+```{r}
+colnames(nut)
+```
+
+```{r}
+library(tidyr)
+nut.long <- pivot_longer(nut, cols=11:14, names_to = "Nutrient", values_to = "Concentration")
+nut.long
+```
+```{r}
+unique(nut$Habitat)
+```
+
+```{r}
+nut.lm <- lm(Concentration~Habitat*Tide*Nutrient, data=nut.long,na.action=na.exclude)
+Anova(nut.lm)
+tukey3<- emmeans(nut.lm, list(pairwise ~ Habitat*Nutrient), adjust = "tukey", simple = "Habitat")
+tukey3
+```
+```{r}
+nutsum<-summarySE(nut.long, measurevar='Concentration', groupvars=c('Habitat','Nutrient'), na.rm=TRUE, conf.interval = 0.95)
+nutsum
+```
+
+```{r}
+#allchla$Region <- factor(allchla$Region, levels=c("Lizard","Heron"))
+#allchla$Time <- factor(allchla$Time, levels=c("Before","During","After"))
+nutfig<-ggplot(nutsum, aes(y=Concentration, x=Habitat, color=Habitat, group=interaction(Habitat,Nutrient)))+ 
+  #geom_path(aes(group = interaction(Habitat), stat="identity"), position=position_dodge(0.6))+
+  facet_wrap(~Nutrient, scales = "free")+
+  geom_point(size=3, position=position_dodge(width=0.5),stat="identity")+
+  geom_errorbar(aes(ymin=Concentration-se, ymax=Concentration+se, width= 0.5), position=position_dodge2( preserve = "single"),stat="identity") +
+  scale_y_continuous(expression(Concentration~(ppm)))+
+  #scale_shape_manual("Treatment",values=c("Adult"=(pch=4),"Juvenile"=(pch=19)))+
+  scale_color_manual("Habitat", values=c("Flat"= 'coral1',"Slope"= "darkslategray", "Experiment"= "grey"))+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5, size=12),
+        axis.text.y=element_text(vjust=0.5, size=12),
+        axis.title.x=element_blank(),
+        axis.title.y=element_text(size=12),
+        legend.text = element_text(vjust=0.5, size=12),
+        #legend.position=c(0.9,0.85),
+        panel.background= element_rect(fill=NA, color='black'),
+        strip.text = element_text(size=12))
+nutfig
+```
+```{r}
+nutsum2<-summarySE(nut.long, measurevar='Concentration', groupvars=c('Date','Habitat','Nutrient'), na.rm=TRUE, conf.interval = 0.95)
+nutsum2
+```
+
+```{r}
+#allchla$Region <- factor(allchla$Region, levels=c("Lizard","Heron"))
+#allchla$Time <- factor(allchla$Time, levels=c("Before","During","After"))
+nutfig2<-ggplot(nutsum2, aes(y=Concentration, x=Date, color=Habitat, group=interaction(Habitat,Nutrient)))+ 
+  geom_path(aes(group = interaction(Habitat), stat="identity"), position=position_dodge(0.6))+
+  facet_wrap(~Nutrient, scales = "free")+
+  geom_point(size=3, position=position_dodge(width=0.5),stat="identity")+
+  geom_errorbar(aes(ymin=Concentration-se, ymax=Concentration+se, width= 0.5), position=position_dodge2( preserve = "single"),stat="identity") +
+  scale_y_continuous(expression(Concentration~(ppm)))+
+  #scale_shape_manual("Treatment",values=c("Adult"=(pch=4),"Juvenile"=(pch=19)))+
+  scale_color_manual("Habitat", values=c("Flat"= 'coral1',"Slope"= "darkslategray", "Experiment"="grey"))+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5, size=12),
+        axis.text.y=element_text(vjust=0.5, size=12),
+        axis.title.x=element_blank(),
+        axis.title.y=element_text(size=12),
+        legend.text = element_text(vjust=0.5, size=12),
+        #legend.position=c(0.9,0.85),
+        panel.background= element_rect(fill=NA, color='black'),
+        strip.text = element_text(size=12))
+nutfig2
+```
+##In situ PAR
+
+```{r}
+insituPARS<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-18_RS_50086_001_002_cal.csv", strip.white=T)
+insituPARS$Date<-as.Date(insituPARS$Date)
+insituPARS$Date_Time<- as.POSIXct(paste(insituPARS$Date, insituPARS$Time), "%Y-%m-%d hh:mm:ss")
+insituPARS$Origin<-as.factor(insituPARS$Origin)
+insituPARS
+```
+
+```{r}
+insituPARS2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-18_RS_1880_001_001_cal.csv", strip.white=T)
+insituPARS2$Date<-as.Date(insituPARS2$Date)
+insituPARS2$Date_Time<- as.POSIXct(paste(insituPARS2$Date, insituPARS2$Time), "%Y-%m-%d hh:mm:ss")
+insituPARS2$Origin<-as.factor(insituPARS2$Origin)
+insituPARS2
+```
+```{r}
+insituPARF<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-18_RF_50197_002_002_cal.csv", strip.white=T)
+insituPARF$Date<-as.Date(insituPARF$Date)
+insituPARF$Date_Time<- as.POSIXct(paste(insituPARF$Date, insituPARF$Time), "%Y-%m-%d hh:mm:ss")
+insituPARF$Origin<-as.factor(insituPARF$Origin)
+insituPARF
+```
+
+```{r}
+insituPARF2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-18_RF_3798_001_001_cal.csv", strip.white=T)
+insituPARF2$Date<-as.Date(insituPARF2$Date)
+insituPARF2$Date_Time<- as.POSIXct(paste(insituPARF2$Date, insituPARF2$Time), "%Y-%m-%d hh:mm:ss")
+insituPARF2$Origin<-as.factor(insituPARF2$Origin)
+insituPARF2
+```
+
+```{r}
+tankPAR<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/PAR in tank compiled.csv", strip.white=T)
+tankPAR$Date<-as.Date(tankPAR$Date)
+tankPAR$Date_Time<- as.POSIXct(paste(tankPAR$Date, tankPAR$Time), "%Y-%m-%d hh:mm:ss")
+tankPAR$Origin<-as.factor(tankPAR$Origin)
+tankPAR
+```
+
+```{r}
+allinsituPAR<- merge(insituPARS,insituPARS2, by=c("Date","Time","Origin", "PAR", "Date_Time"), all=T)
+allinsituPAR<-merge(allinsituPAR,insituPARF, by=c("Date","Time","Origin", "PAR", "Date_Time"), all=T)
+allinsituPAR<-merge(allinsituPAR,insituPARF2, by=c("Date","Time","Origin", "PAR", "Date_Time"), all=T)
+allinsituPAR<-merge(allinsituPAR,tankPAR, by=c("Date","Time","Origin", "PAR", "Date_Time"), all=T)
+allinsituPAR
+```
+```{r}
+insituPARmean<-allinsituPAR%>%
+  group_by(Origin)%>%
+  summarize_at(vars(PAR), funs(mean,std.error,sd,min,max), na.rm=T)
+insituPARmean
+```
+```{r}
+PAR.lm <- lm(PAR~Origin, data=allinsituPAR,na.action=na.exclude)
+Anova(PAR.lm)
+tukey3<- emmeans(PAR.lm, list(pairwise ~ Origin), adjust = "tukey")
+tukey3
+```
+##In situ temperature
+```{r}
+temps<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-18_North_slope_10195729.csv", strip.white=T)
+temps$Date<-as.Date(temps$Date)
+temps$Date_Time<- as.POSIXct(paste(temps$Date, temps$Time), "%Y-%m-%d hh:mm:ss")
+temps$Origin<-as.factor(temps$Origin)
+temps
+```
+```{r}
+temps2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-18_North_slope2.csv", strip.white=T)
+temps2$Date<-as.Date(temps2$Date)
+temps2$Date_Time<- as.POSIXct(paste(temps2$Date, temps2$Time), "%Y-%m-%d hh:mm:ss")
+temps2$Origin<-as.factor(temps2$Origin)
+temps2
+```
+```{r}
+tempf<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-18_North_flat.csv", strip.white=T)
+tempf$Date<-as.Date(tempf$Date)
+tempf$Date_Time<- as.POSIXct(paste(tempf$Date, tempf$Time), "%Y-%m-%d hh:mm:ss")
+tempf$Origin<-as.factor(tempf$Origin)
+tempf
+```
+```{r}
+tempf2<-read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Experiment light and temperature data/2021-03-18_North_flat2.csv", strip.white=T)
+tempf2$Date<-as.Date(tempf2$Date)
+tempf2$Date_Time<- as.POSIXct(paste(tempf2$Date, tempf2$Time), "%Y-%m-%d hh:mm:ss")
+tempf2$Origin<-as.factor(tempf2$Origin)
+tempf2
+```
+```{r}
+tank<- read.csv("/Users/imkri/Desktop/Penn Postdoc/Heron experiment/Temperature compiled in tank.csv", strip.white=T)
+tank$Date<-as.Date(tank$Date)
+tank$Date_Time<- as.POSIXct(paste(tank$Date, tank$Time),"%Y-%m-%d hh:mm:ss")
+tank$Origin<-as.factor(tank$Origin)
+tank
+```
+
+```{r}
+alltempinsitu<- merge(temps,temps2, by=c("Date","Time","Origin", "Temperature", "Date_Time"), all=T)
+alltempinsitu<-merge(alltempinsitu,tempf, by=c("Date","Time","Origin", "Temperature", "Date_Time"), all=T)
+alltempinsitu<-merge(alltempinsitu,tempf2, by=c("Date","Time","Origin", "Temperature", "Date_Time"), all=T)
+alltempinsitu<-merge(tank,alltempinsitu, by=c("Date","Time","Origin", "Temperature", "Date_Time"), all=T)
+alltempinsitu
+```
+
+```{r}
+tempsum<-alltempinsitu%>%
+  group_by(Origin)%>%
+  summarize_at(vars(Temperature), funs(mean,std.error,sd,min,max), na.rm=T)
+tempsum
+```
+```{r}
+unique(alltempinsitu$Origin)
+```
+
+```{r}
+temp.lm <- lm(Temperature~Origin, data=alltempinsitu,na.action=na.exclude)
+Anova(temp.lm)
+tukey3<- emmeans(temp.lm, list(pairwise ~ Origin), adjust = "tukey")
+tukey3
+```
+```{r}
+alltempinsitu$Origin <- factor(alltempinsitu$Origin, levels=c("Flat","Experiment","Slope"))
+temp_insitu<-ggplot(alltempinsitu %>%
+         arrange(Origin), aes(y=Temperature, x=Date_Time, color=Origin))+
+  geom_point(size=1)+
+  #geom_line(size=.75)+
+  #scale_fill_manual("Origin", values=c("Slope"='paleturquoise3', "Flat"= "indianred", "Experiment"="black"))+
+  scale_color_manual("Origin", values=c("Slope"='paleturquoise3', "Flat"= "indianred","Experiment"="black"))+
+  scale_y_continuous(expression(Temperature~(degree~C)))+
+  scale_x_datetime(expand=c(0.015,0.015))+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        legend.position = c(0.15,0.9),
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        #legend.position="none",
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+temp_insitu
+```
+
+```{r}
+allinsituPAR$Origin <- factor(allinsituPAR$Origin, levels=c("Flat","Slope","Experiment"))
+PAR_insitu<-ggplot(allinsituPAR %>%
+         arrange(Origin), aes(y=PAR, x=Date_Time, color=Origin))+
+  geom_point(size=1.25)+
+  #geom_line(size=.75)+
+  scale_fill_manual("Origin", values=c("Slope"='paleturquoise3', "Flat"= "inidanred"))+
+  scale_color_manual("Origin", values=c("Slope"='paleturquoise3', "Flat"= "indianred","Experiment"="black"))+
+  scale_y_continuous(expression(PAR~(mu~mol~qanta~m^{-2}~s^{-1})))+
+  scale_x_datetime(expand=c(0.015,0.015))+
+  theme_classic()+
+  theme(axis.text.x=element_text(vjust=0.5,size=12),#angling the labels on the x-axis
+        plot.title = element_text(margin = margin(t = 10, b = 10), hjust=0.5),#telling it where to position our plot title
+        panel.background= element_rect(fill=NA, color='black'),#this is making the black box around the graph
+        #legend.position = c(0.15,0.3),
+        strip.background = element_blank(), 
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        legend.position="none",
+        axis.text.y = element_text(vjust=0.5, size=12), #making the axis text larger 
+        axis.title.x = element_blank(),#making the axis title larger 
+        axis.title.y = element_text(size=12))#making the axis title larger 
+PAR_insitu
+```
+```{r}
+PARsum<-allinsituPAR%>%
+  group_by(Origin)%>%
+  summarize_at(vars(PAR), funs(mean,std.error,sd,min,max), na.rm=T)
+PARsum
+```
+
+```{r}
+PAR.lm <- lm(PAR~Origin, data=allinsituPAR,na.action=na.exclude)
+Anova(PAR.lm)
+tukey3<- emmeans(PAR.lm, list(pairwise ~ Origin), adjust = "tukey")
+tukey3
+```
+
+```{r}
+library(cowplot)
+partemp<-plot_grid(temp_insitu, PAR_insitu, nrow=1, ncol=2, align="h", axis = "bt")
+partemp
+```
